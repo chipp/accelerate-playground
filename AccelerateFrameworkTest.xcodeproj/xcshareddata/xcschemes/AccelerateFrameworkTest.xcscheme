@@ -27,5 +27,12 @@
             ReferencedContainer = "container:AccelerateFrameworkTest.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "path"
+            value = "/Volumes/MacintoshHD/Users/chipp/Developer/accelerate-playground"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
    </LaunchAction>
 </Scheme>

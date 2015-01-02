@@ -27,7 +27,7 @@ void printDoubleMatrix(double *matrix, unsigned long rows, unsigned long columns
     for (unsigned long i = 0; i < rows; i++) {
         NSString *row = @"";
         for (unsigned long j = 0; j < columns; j++) {
-            row = [row stringByAppendingFormat:@"%.10f\t\t", *(matrix + i*columns + j)];
+            row = [row stringByAppendingFormat:@"%.10f ", *(matrix + i*columns + j)];
         }
 
         row = [row stringByAppendingString:@"\n"];
@@ -61,93 +61,80 @@ void printDoubleVec(double *vec, unsigned long count) {
     NSLog(@"%@", out);
 }
 
+double one = 1, zero = 0;
+
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
-        NSInputStream *trainingImagesInputStream = [NSInputStream inputStreamWithFileAtPath:@"/Users/chipp/Developer/accelerate-playground/train-images.idx3-ubyte"];
+        NSString *path = [[NSProcessInfo processInfo] environment][@"path"];
+
+        NSInputStream *trainingImagesInputStream = [NSInputStream inputStreamWithFileAtPath:[path stringByAppendingPathComponent:@"train-images.idx3-ubyte"]];
         [trainingImagesInputStream open];
 
         uint8_t *buffer32 = malloc(4 * sizeof(uint8_t));
 
-        uint32_t imagesCount, rowsCount, columnsCount;
+        unsigned long images, rows, columns, pixels;
 
         [trainingImagesInputStream read:buffer32 maxLength:4]; //skip msb
 
         [trainingImagesInputStream read:buffer32 maxLength:4];
-        imagesCount = unpack_uint32(buffer32);
+        images = unpack_uint32(buffer32);
 
         [trainingImagesInputStream read:buffer32 maxLength:4];
-        rowsCount = unpack_uint32(buffer32);
+        rows = unpack_uint32(buffer32);
 
         [trainingImagesInputStream read:buffer32 maxLength:4];
-        columnsCount = unpack_uint32(buffer32);
+        columns = unpack_uint32(buffer32);
 
-        imagesCount = 5;
+        pixels = rows * columns;
 
-        uint8_t **data = (uint8_t **)malloc(imagesCount * sizeof(uint8_t *));
-        for (int i = 0; i < imagesCount; i++) {
-            data[i] = (uint8_t *)malloc(rowsCount * columnsCount * sizeof(uint8_t));
-        }
+        images = 1;
+
+        double *data = malloc(images * pixels * sizeof(double));
 
         uint8_t buffer8;
 
-        uint32_t imageCounter = 0;
-        int pixelCounter = 0;
+        unsigned long image_cnt = 0;
+        int pixel_cnt = 0;
 
         while ([trainingImagesInputStream hasBytesAvailable]) {
             [trainingImagesInputStream read:&buffer8 maxLength:1];
 
-            if (pixelCounter > (rowsCount * columnsCount - 1)) {
-                pixelCounter = 0;
-                imageCounter++;
+            if (pixel_cnt > pixels - 1) {
+                pixel_cnt = 0;
+                image_cnt++;
 
-                if (imageCounter == imagesCount) {
+                if (image_cnt == images) {
                     break;
                 }
             }
 
-            data[imageCounter][pixelCounter++] = buffer8;
+            *(data + image_cnt * pixels + pixel_cnt++) = buffer8;
         }
 
-        NSInputStream *trainLabelsInputStream = [NSInputStream inputStreamWithFileAtPath:@"/Users/chipp/Developer/accelerate-playground/train-labels.idx1-ubyte"];
-        [trainLabelsInputStream open];
+        NSInputStream *trainingLabelsInputStream = [NSInputStream inputStreamWithFileAtPath:[path stringByAppendingPathComponent:@"train-labels.idx1-ubyte"]];
+        [trainingLabelsInputStream open];
 
-        uint8_t *labels = (uint8_t *)malloc(imagesCount * sizeof(uint8_t));
+        double *labels = malloc(images * 10 * sizeof(double));
 
-        imageCounter = 0;
+        image_cnt = 0;
 
-        while ([trainingImagesInputStream hasBytesAvailable] && imageCounter < imagesCount) {
+        while ([trainingLabelsInputStream hasBytesAvailable] && image_cnt < images) {
             [trainingImagesInputStream read:&buffer8 maxLength:1];
 
-            labels[imageCounter++] = buffer8;
+            vDSP_vclrD(&labels[image_cnt * 10], 1, 10);
+            *(labels + image_cnt * 10 + (unsigned long)buffer8) = 1;
+            image_cnt++;
         }
 
-        int l_in = 784, l_out = 25;
+        unsigned long l_a1 = pixels, l_a2 = 10, l_a3 = 10;
+        double *X = malloc(images * (l_a1 + 1) * sizeof(double));
 
-        unsigned long trainingExamplesCount = 10;
-        double one = 1, zero = 0;
+        vDSP_mmovD(data, &X[1], l_a1 + 1, images, l_a1, l_a1 + 1);
+        vDSP_vrampD(&one, &zero, X, pixels + 1, images);
 
-        double *X = malloc(trainingExamplesCount * 61 * sizeof(double));
-
-        double generatedX[600] = {
-                0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0,
-                1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1,
-                1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1,
-                1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1,
-                1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1,
-                1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1
-        };
-
-        vDSP_mmovD(generatedX, &X[1], 61, trainingExamplesCount, 60, 61);
-        vDSP_vrampD(&one, &zero, X, 10, trainingExamplesCount);
-
-//        printf("X:\n");
-//        printDoubleMatrix(X, 10, 61);
-
-        unsigned long l_a1 = 60, l_a2 = 25, l_a3 = 10;
+        printf("X:\n");
+        printDoubleMatrix(X, images, pixels + 1);
+        printf("\n\n");
 
         double *Theta1 __attribute__ ((aligned)) = malloc((l_a1 + 1) * l_a2 * sizeof(double));
         double *Theta2 __attribute__ ((aligned)) = malloc((l_a1 + 1) * l_a2 * sizeof(double));
@@ -157,37 +144,53 @@ int main(int argc, const char * argv[]) {
 
         printf("Theta1 matrix:\n");
         printDoubleMatrix(Theta1, l_a1 + 1, l_a2);
+        printf("\n\n");
 
-        double *z2 __attribute__ ((aligned)) = malloc(trainingExamplesCount * l_a2 * sizeof(double));
-        double *a2 __attribute__ ((aligned)) = malloc(trainingExamplesCount * (l_a2 + 1) * sizeof(double));
-        double *z3 __attribute__ ((aligned)) = malloc(trainingExamplesCount * l_a3 * sizeof(double));
-        double *a3 __attribute__ ((aligned)) = malloc(trainingExamplesCount * l_a3 * sizeof(double));
+        printf("Theta2 matrix:\n");
+        printDoubleMatrix(Theta2, l_a2 + 1, l_a3);
+        printf("\n\n");
+
+        double *z2 __attribute__ ((aligned)) = malloc(images * l_a2 * sizeof(double));
+        double *a2 __attribute__ ((aligned)) = malloc(images * (l_a2 + 1) * sizeof(double));
+        double *z3 __attribute__ ((aligned)) = malloc(images * l_a3 * sizeof(double));
+        double *a3 __attribute__ ((aligned)) = malloc(images * l_a3 * sizeof(double));
 
         double *Theta1T = malloc((l_a1 + 1) * l_a2 * sizeof(double));
         vDSP_mtransD(Theta1, 1, Theta1T, 1, l_a1 + 1, l_a2);
 
-        vDSP_mmulD(X, 1, Theta1T, 1, z2, 1, trainingExamplesCount, l_a2, (l_a1 + 1));
+        vDSP_mmulD(X, 1, Theta1, 1, z2, 1, images, l_a2, (l_a1 + 1));
 
+        double sum = 0;
+        for (unsigned long i = 0; i < pixels + 1; i++) {
+            sum += (*(X + i) * *(Theta1 + 10*i));
+        }
+
+        printf("z2[0] = %f\n\n\n", sum);
+
+#define MATRIX_DEBUG
 #ifdef MATRIX_DEBUG
-        NSLog(@"z2 matrix:");
-        printDoubleMatrix(z2, trainingExamplesCount, (uint32_t) l_a2);
+        printf("z2 matrix:\n");
+        printDoubleMatrix(z2, images, (uint32_t) l_a2);
+        printf("\n\n");
 #endif
 
-        unsigned long lm_z2 = l_a2 * trainingExamplesCount;
+        unsigned long lm_z2 = l_a2 * images;
 
         vDSP_vnegD(z2, 1, z2, 1, lm_z2);
         vvexp(z2, z2, (int const *) &lm_z2);
 
 #ifdef MATRIX_DEBUG
-        NSLog(@"exp(-z2)");
-        printDoubleMatrix(z2, trainingExamplesCount, l_a2);
+        printf("exp(-z2)\n");
+        printDoubleMatrix(z2, images, l_a2);
+        printf("\n\n");
 #endif
 
         vDSP_vsaddD(z2, 1, &one, z2, 1, lm_z2);
 
 #ifdef MATRIX_DEBUG
-        NSLog(@"1 + exp(-z2)");
-        printDoubleMatrix(z2, trainingExamplesCount, l_a2);
+        printf("1 + exp(-z2)\n");
+        printDoubleMatrix(z2, images, l_a2);
+        printf("\n\n");
 #endif
 
         double *ones = malloc(lm_z2 * sizeof(double));
@@ -196,46 +199,57 @@ int main(int argc, const char * argv[]) {
         vDSP_vdivD(z2, 1, ones, 1, z2, 1, lm_z2);
 
 #ifdef MATRIX_DEBUG
-        NSLog(@"1 / (1 + exp(-z2))");
-        printDoubleMatrix(z2, trainingExamplesCount, l_a2);
+        printf("1 / (1 + exp(-z2))\n");
+        printDoubleMatrix(z2, images, l_a2);
+        printf("\n\n");
 #endif
 
-        vDSP_mmovD(z2, &a2[1], l_a2 + 1, trainingExamplesCount, l_a2, l_a2 + 1);
-        vDSP_vrampD(&one, &zero, a2, l_a2 + 1, trainingExamplesCount);
+        vDSP_mmovD(z2, &a2[1], l_a2 + 1, images, l_a2, l_a2 + 1);
+        vDSP_vrampD(&one, &zero, a2, l_a2 + 1, images);
 
 #ifdef MATRIX_DEBUG
-        NSLog(@"a2 with bias unit");
-        printDoubleMatrix(a2, trainingExamplesCount, l_a2 + 1);
+        printf("a2 with bias unit:\n");
+        printDoubleMatrix(a2, images, l_a2 + 1);
+        printf("\n\n");
 #endif
 
         double *Theta2T = malloc((l_a1 + 1) * l_a2 * sizeof(double));
         vDSP_mtransD(Theta2, 1, Theta2T, 1, l_a2 + 1, l_a3);
 
-        vDSP_mmulD(a2, 1, Theta2, 1, z3, 1, trainingExamplesCount, l_a3, (l_a2 + 1));
-//#define MATRIX_DEBUG
-//#ifdef MATRIX_DEBUG
-//        NSLog(@"z3");
-//        printDoubleMatrix(z3, trainingExamplesCount, l_a3);
-//#endif
+        vDSP_mmulD(a2, 1, Theta2, 1, z3, 1, images, l_a3, (l_a2 + 1));
 
-//        for (int i = 0; i < l_a2; i++) {
-//            NSLog(@"%.3f", z2[i]);
-//        }
+#ifdef MATRIX_DEBUG
+        printf("z3:\n");
+        printDoubleMatrix(z3, images, l_a3);
+        printf("\n\n");
+#endif
 
-//        double a1_[3] = {1, 48, 59};
-//        double a2_[] = {
-//                0.547, -0.042, 0.365, 0.032, -0.529, -0.234, -0.188, 0.060, 0.079, 0.476,
-//                -0.670, -0.316, 0.121, -0.017, 0.536, -0.291, 0.478, 0.560, -0.379, 0.638,
-//                0.255, 0.657, -0.653, 0.492, -0.211, -0.019, -0.275, -0.057, 0.080, -0.027
-//        };
-//
-//        double *a3_ = malloc(10 * sizeof(double));
-//
-//        vDSP_mmulD(a1_, 1, (double const *) a2_, 1, a3_, 1, 1, 10, 3);
-//
-//        for (int i = 0; i < 10; i++) {
-//            NSLog(@"%f", a3_[i]);
-//        }
+        unsigned long lm_z3 = l_a3 * images;
+
+        vDSP_vnegD(z3, 1, z3, 1, lm_z3);
+        vvexp(z3, z3, (int const *) &lm_z3);
+
+#ifdef MATRIX_DEBUG
+        printf("exp(-z3)\n");
+        printDoubleMatrix(z3, images, l_a2);
+        printf("\n\n");
+#endif
+
+        vDSP_vsaddD(z3, 1, &one, z3, 1, lm_z3);
+
+#ifdef MATRIX_DEBUG
+        printf("1 + exp(-z3)\n");
+        printDoubleMatrix(z3, images, l_a2);
+        printf("\n\n");
+#endif
+
+        vDSP_vdivD(z3, 1, ones, 1, z3, 1, lm_z3);
+
+#ifdef MATRIX_DEBUG
+        printf("1 / (1 + exp(-z3))\n");
+        printDoubleMatrix(z3, images, l_a3);
+        printf("\n\n");
+#endif
     }
     return 0;
 }
