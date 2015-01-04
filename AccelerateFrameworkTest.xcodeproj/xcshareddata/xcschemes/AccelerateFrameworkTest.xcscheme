@@ -30,7 +30,7 @@
       <EnvironmentVariables>
          <EnvironmentVariable
             key = "path"
-            value = "/Volumes/MacintoshHD/Users/chipp/Developer/accelerate-playground"
+            value = "/Users/chipp/Developer/accelerate-playground"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>
